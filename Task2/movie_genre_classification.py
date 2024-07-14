@@ -1,177 +1,110 @@
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib as plt
 import seaborn as sns
 import re
-import string
 import nltk
+import string
 from nltk.corpus import stopwords
 from nltk.stem import LancasterStemmer
-from keras_preprocessing.sequence import pad_sequences
-from keras_preprocessing.text import Tokenizer
-from tensorflow.python.keras.models import Sequential
-from tensorflow.python.keras.layers import Embedding, Dense, SpatialDropout1D
-from tensorflow.python.keras.layers.recurrent import LSTM
-from tensorflow.python.keras.callbacks import EarlyStopping
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, classification_report
 
-train_path='/workspaces/CODSOFT/Task2/train_data.txt'
-train_data=pd.read_csv( train_path , sep=':::',engine='python',names=['Title','Genre','Description'])
-train_data.head()
+# Load the training data
+print("Loading the training data...")
+train_path = "/workspaces/CODSOFT/Task2/train_data.txt"
+train_data = pd.read_csv(train_path, sep=':::', names=['Title', 'Genre', 'Description'], engine='python')
 
-test_path='/workspaces/CODSOFT/Task2/test_data.txt'
-test_data=pd.read_csv( test_path , sep=':::',engine='python',names=['ID', 'Title','Description'])
+print(train_data.describe())
+print(train_data.info())
+print(train_data.isnull().sum())
+
+# Load the test data
+test_path = "/workspaces/CODSOFT/Task2/test_data.txt"
+test_data = pd.read_csv(test_path, sep=':::', names=['Id', 'Title', 'Description'], engine='python')
 test_data.head()
 
-train_data.describe()
-train_data.info()
-train_data.isnull().sum()
+# Plot the distribution of genres in the training data
+plt.figure(figsize=(14, 7))
+sns.countplot(data=train_data, y='Genre', order=train_data['Genre'].value_counts().index, palette='viridis')
+plt.xlabel('Count', fontsize=14, fontweight='bold')
+plt.ylabel('Genre', fontsize=14, fontweight='bold')
 
-#DATA VISUALIZATIONS
-plt.figure(figsize=(12,8))
-counts = train_data.Genre.value_counts()
-sns.barplot(x=counts, y=counts.index, orient='h')  
-plt.xlabel('Genre')
-plt.ylabel('Count')
-
-
-plt.figure(figsize=(12,8))
-counts = train_data.Genre.value_counts()
-sns.barplot(x=counts.index, y=counts, color='blue')
-plt.xlabel('Genre' ,fontsize=14, fontweight='bold')
+# Plot the distribution of genres using a bar plot'
+plt.figure(figsize=(14, 7))
+counts = train_data['Genre'].value_counts()
+sns.barplot(x=counts.index, y=counts, palette='viridis')
+plt.xlabel('Genre', fontsize=14, fontweight='bold')
 plt.ylabel('Count', fontsize=14, fontweight='bold')
 plt.title('Distribution of Genres', fontsize=16, fontweight='bold')
-plt.xticks(rotation=90, fontsize=14, fontweight='bold');
+plt.xticks(rotation=90, fontsize=14, fontweight='bold')
+plt.show()
 
-train_data['length']=train_data['Description'].apply(len)
-train_data.head()
+stemmer = LancasterStemmer()
+stop_words = set(stopwords.words('english'))
 
+# Define the clean_text function
+def clean_text(text):
+    text = text.lower()  # Lowercase all characters
+    text = re.sub(r'@\S+', '', text)  # Remove Twitter handles
+    text = re.sub(r'http\S+', '', text)  # Remove URLs
+    text = re.sub(r'pic.\S+', '', text)
+    text = re.sub(r"[^a-zA-Z+']", ' ', text)  # Keep only characters
+    text = re.sub(r'\s+[a-zA-Z]\s+', ' ', text + ' ')  # Keep words with length > 1 only
+    text = "".join([i for i in text if i not in string.punctuation])
+    words = nltk.word_tokenize(text)
+    stopwords = nltk.corpus.stopwords.words('english')  # Remove stopwords
+    text = " ".join([i for i in words if i not in stopwords and len(i) > 2])
+    text = re.sub("\s[\s]+", " ", text).strip()  # Remove repeated/leading/trailing spaces
+    return text
+
+# Apply the clean_text function to the 'Description' column in the training and test data
+train_data['Text_cleaning'] = train_data['Description'].apply(clean_text)
+test_data['Text_cleaning'] = test_data['Description'].apply(clean_text)
+
+# Calculate the length of cleaned text
+train_data['length_Text_cleaning'] = train_data['Text_cleaning'].apply(len)
+# Visualize the distribution of text lengths
 plt.figure(figsize=(8, 7))
-sns.histplot(data=train_data, x='length', bins=20, kde=True, color='blue')
+sns.histplot(data=train_data, x='length_Text_cleaning', bins=20, kde=True, color='blue')
 plt.xlabel('Length', fontsize=14, fontweight='bold')
 plt.ylabel('Frequency', fontsize=14, fontweight='bold')
 plt.title('Distribution of Lengths', fontsize=16, fontweight='bold')
 plt.show()
 
-#data cleaning and processing
-stemmer = LancasterStemmer()
-stop_words = set(stopwords.words('english'))
+# Initialize the TF-IDF vectorizer
+tfidf_vectorizer = TfidfVectorizer()
 
-def clean_text(text):
-   
-    text = text.lower()                                  # lower-case all characters
-    text = re.sub('-',' ',text.lower())   # replace `word-word` as `word word`
-    text = re.sub(f'[{string.digits}]',' ',text)  # remove digits
-    text = ' '.join([stemmer.stem(word) for word in text.split() if word not in stop_words])  # remove stopwords and stem other words
-    text =  re.sub(r'@\S+','',text)                     # remove twitter handles
-    text =  re.sub(r'http\S+','',text)                  # remove urls
-    text =  re.sub(r'pic.\S+','',text) 
-    text =  re.sub(r"[^a-zA-Z+']", ' ',text)             # only keeps characters
-    text = re.sub(r'\s+[a-zA-Z]\s+', ' ', text+' ')      # keep words with length>1 only
-    text = "".join([i for i in text if i not in string.punctuation])
-    words = nltk.tokenize.word_tokenize(text,language="english", preserve_line=True)
-    stopwords = nltk.corpus.stopwords.words('english')   # remove stopwords
-    text = " ".join([i for i in words if i not in stopwords and len(i)>2])
-    text= re.sub("\s[\s]+", " ",text).strip()            # remove repeated/leading/trailing spaces
-    return re.sub(f'[{re.escape(string.punctuation)}]','',text) # remove punctuations
+# Fit and transform the training data
+X_train = tfidf_vectorizer.fit_transform(train_data['Text_cleaning'])
 
-#Test your cleaning function
-input_text = "Certainly you get a dramatic boost from hello bye the the hi -iv iem-k q934*2yee !*3 2e38"
-print(f'Original text: {input_text}')
-print(f'Cleaned text: {clean_text(input_text)}')
+# Transform the test data
+X_test = tfidf_vectorizer.transform(test_data['Text_cleaning'])
 
-train_data['Text_cleaning'] = train_data.Description.apply(clean_text)
-test_data['Text_cleaning'] = test_data.Description.apply(clean_text)
-train_data.head()
+# Split the data into training and validation sets
+X = X_train
+y = train_data['Genre']
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-train_data['length_Text_cleaning']=train_data['Text_cleaning'].apply(len)
-train_data.head()
+# Initialize and train a Multinomial Naive Bayes classifier
+classifier = MultinomialNB()
+classifier.fit(X_train, y_train)
 
-# Create histograms for text length before and after cleaning
-plt.figure(figsize=(12, 6))
+# Make predictions on the validation set
+y_pred = classifier.predict(X_val)
 
-# Original text length distribution
-plt.subplot(1, 2, 1)
-original_lengths = train_data['Description'].apply(len)
-plt.hist(original_lengths, bins=range(0, max(original_lengths) + 100, 100), color='blue', alpha=0.7)
-plt.title('Original Text Length')
-plt.xlabel('Text Length')
-plt.ylabel('Frequency')
+# Evaluate the performance of the model
+accuracy = accuracy_score(y_val, y_pred)
+print("Validation Accuracy:", accuracy)
+print(classification_report(y_val, y_pred))
 
-# Cleaned text length distribution
-plt.subplot(1, 2, 2)
-cleaned_lengths = train_data['Text_cleaning'].apply(len)
-plt.hist(cleaned_lengths, bins=range(0, max(cleaned_lengths) + 100, 100), color='green', alpha=0.7)
-plt.title('Cleaned Text Length')
-plt.xlabel('Text Length')
-plt.ylabel('Frequency')
-plt.tight_layout()
-plt.show()
+# Use the trained model to make predictions on the test data
+X_test_predictions = classifier.predict(X_test)
+test_data['Predicted_Genre'] = X_test_predictions
 
-(train_data['length_Text_cleaning']>2000).value_counts()
+# Save the test_data DataFrame with predicted genres to a CSV file
+test_data.to_csv('predicted_genres.csv', index=False)
 
-#Remove extremely long descriptions: outliers
-print('Dataframe size (before removal): ',len(train_data))
-filt=train_data['length_Text_cleaning']>2000
-train_data.drop(train_data[filt].index,axis=0,inplace=True)     # filter rows having cleaned description length > 2000
-print('Dataframe size (after removal): ',len(train_data))
-print(f'Removed rows: {filt.sum()}')
-
-plt.figure(figsize=(12,5))
-sns.barplot(x='Genre',y='length_Text_cleaning',data=train_data)  # from 600 to 350 (significant reduction in length)
-plt.xticks(rotation=60)
-plt.show()
-plt.figure(figsize=(20,5))
-sns.boxplot(x=train_data['length_Text_cleaning'].values,hue='Genre',data=train_data)
-plt.show()
-
-#text tokenization and vectorization
-num_words = 50000
-max_len = 250
-tokenizer = Tokenizer(num_words=num_words, filters='!"#$%&()*+,-./:;<=>?@[\]^_`{|}~', lower=True)
-tokenizer.fit_on_texts(train_data['Text_cleaning'].values)
-
-test_path='/workspaces/CODSOFT/Task2/test_data_solution.txt'
-test_data_solution=pd.read_csv( test_path , sep=':::',engine='python',names=['ID','Title','Genre','Description'])
-test_data_solution.head()
-
-X = tokenizer.texts_to_sequences(train_data['Text_cleaning'].values)
-X = pad_sequences(X, maxlen=max_len)
-y = pd.get_dummies(train_data['Genre']).values
-
-X_test = tokenizer.texts_to_sequences(test_data['Text_cleaning'].values)
-X_test = pad_sequences(X_test, maxlen=max_len)
-y_test = pd.get_dummies(test_data_solution['Genre']).values
-
-#building the LSTM model
-print("LSTM model:")
-EMBEDDING_DIM = 100
-model = Sequential()
-model.add(Embedding(num_words, EMBEDDING_DIM, input_length=X.shape[1]))
-model.add(SpatialDropout1D(0.2))
-model.add(LSTM(100, dropout=0.1, recurrent_dropout=0.2))
-model.add(Dense(27, activation='softmax'))
-model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-#train the model
-my_callbacks  = [EarlyStopping(monitor='val_loss',
-                              min_delta=0,
-                              patience=2,
-                              mode='auto')]
-
-history = model.fit(X, y, epochs=6, batch_size=32, validation_data=(X_test, y_test), callbacks=my_callbacks)
-
-#Plotting accuracy and loss
-plt.figure(figsize=(12, 4))
-plt.subplot(1, 2, 1)
-plt.plot(history.history['accuracy'], label='Train Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.legend()
-plt.title('Accuracy')
-
-plt.subplot(1, 2, 2)
-plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.legend()
-plt.title('Loss')
-
-plt.tight_layout()
-plt.show()
+# Display the 'test_data' DataFrame with predicted genres
+print(test_data)
