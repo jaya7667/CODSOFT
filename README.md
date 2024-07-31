@@ -14,3 +14,11 @@ TASK 2 : MOVIE GENRE CLASSIFICATION
     can use techniques like TF-IDF or word embeddings with classifiers
     such as Naive Bayes, Logistic Regression, or Support Vector
     Machines.
+
+TASK 3 : CREDIT CARD DETECTION
+
+    Build a model to detect fraudulent credit card transactions. Use a
+    dataset containing information about credit card transactions, and
+    experiment with algorithms like Logistic Regression, Decision Trees,
+    or Random Forests to classify transactions as fraudulent or
+    legitimate.
